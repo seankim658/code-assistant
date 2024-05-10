@@ -1,6 +1,7 @@
 from llama_index.llms.openai import OpenAI  # type: ignore
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from llama_index.core import VectorStoreIndex, Settings
+from llama_index.core.chat_engine.types import BaseChatEngine
 from llama_index.readers.github import GithubRepositoryReader, GithubClient  # type: ignore
 import logging
 import streamlit as st
@@ -62,6 +63,45 @@ def layout():
     else:
 
         repo_config()
+
+        index = st.session_state.get("index")
+        if index:
+            chat_engine = index.as_chat_engine(chat_mode="context")
+
+        if "messages" not in st.session_state:
+            st.session_state.messages = [
+                {
+                    "role": "assistant",
+                    "content": "Ask a question about the repository.",
+                }
+            ]
+
+        user_input = st.chat_input("Ask a question")
+        if user_input:
+            st.session_state.messages.append({"role": "user", "content": user_input})
+        display_chat_history(st.session_state.messages)
+
+        if st.session_state.messages[-1]["role"] != "assistant":
+            try:
+                generate_assistant_response(user_input, chat_engine)
+            except Exception as e:
+                st.error(str(e))
+
+
+def generate_assistant_response(prompt: str, chat_engine: BaseChatEngine):
+    
+    with st.chat_message("assistant"):
+        with st.spinner("On it..."):
+            response = chat_engine.chat(prompt)
+            message = {"role": "assistant", "content": response.response}
+            st.write(message["content"])
+            st.session_state.messages.append(message)
+
+def display_chat_history(messages: list):
+
+    for message in messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
 
 
 def repo_config() -> bool:
@@ -129,7 +169,13 @@ def repo_config() -> bool:
                     filter_directories=directory_arg,
                     filter_file_extensions=file_extension_arg,
                 )
-                github_documents = git_loader.load_data(branch=branch_arg)
+                try:
+                    github_documents = git_loader.load_data(branch=branch_arg)
+                except Exception as _:
+                    st.error(
+                        "Error loading github reposistory, check your github token and repository information."
+                    )
+                    return False
                 index = VectorStoreIndex.from_documents(github_documents)
                 st.session_state["index"] = index
 
