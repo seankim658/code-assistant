@@ -1,7 +1,7 @@
 from llama_index.llms.openai import OpenAI  # type: ignore
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from llama_index.core import VectorStoreIndex, Settings
-from llama_index.core.chat_engine.types import BaseChatEngine
+from llama_index.core.chat_engine.types import AGENT_CHAT_RESPONSE_TYPE, BaseChatEngine
 from llama_index.readers.github import GithubRepositoryReader, GithubClient  # type: ignore
 import streamlit as st
 import re
@@ -85,7 +85,7 @@ def layout():
 
         if st.session_state.messages[-1]["role"] != "assistant":
             try:
-                generate_assistant_response(user_input, chat_engine)
+                generate_assistant_response(user_input, chat_engine)  # type: ignore
             except Exception as e:
                 st.error(str(e))
 
@@ -95,9 +95,37 @@ def generate_assistant_response(prompt: str, chat_engine: BaseChatEngine):
     with st.chat_message("assistant"):
         with st.spinner("On it..."):
             response = chat_engine.chat(prompt)
-            message = {"role": "assistant", "content": response.response}
+            message = {
+                "role": "assistant",
+                "content": response.response,
+                "sources": format_sources(response),
+            }
+            st.info(f"The sources of this response are:\n\n{message['sources']}")
             st.write(message["content"])
             st.session_state.messages.append(message)
+
+
+def format_sources(response: AGENT_CHAT_RESPONSE_TYPE) -> str:
+
+    return "\n".join(
+        [
+            f" - {source['file']} (author: '{source['author']}'; score: {source['score']})\n"
+            for source in get_metadata(response)
+        ]
+    )
+
+
+def get_metadata(response: AGENT_CHAT_RESPONSE_TYPE) -> list:
+
+    sources: list[dict] = []
+    for source in response.source_nodes:
+        if hasattr(source, "metadata"):
+            file = source.metadata.get("url")
+            file = file.replace("\\", "/") if file is not None else None
+            author = source.metadata.get("author")
+            score = float("{:.3f}".format(source.score))  # type: ignore
+            sources.append({"file": file, "author": author, "score": score})
+    return sources
 
 
 def display_chat_history(messages: list):
@@ -180,6 +208,7 @@ def repo_config():
                         repo=repo,
                         filter_directories=directory_arg,
                         filter_file_extensions=file_extension_arg,
+                        verbose=True,
                     )
                     with st.spinner("Indexing..."):
                         try:
@@ -191,7 +220,7 @@ def repo_config():
                             return
                         index = VectorStoreIndex.from_documents(github_documents)
                         st.session_state["index"] = index
-                        st.session_state.config_expanded = False
+                    st.session_state.config_expanded = False
                 else:
                     st.error("Failed parsing repository URL, please try again.")
 
