@@ -3,7 +3,6 @@ from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.chat_engine.types import BaseChatEngine
 from llama_index.readers.github import GithubRepositoryReader, GithubClient  # type: ignore
-import logging
 import streamlit as st
 import re
 import os
@@ -45,6 +44,8 @@ def sidebar():
             "[Help](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)"
         )
 
+    st.sidebar.button("Clear Messages", type="primary", on_click=clear_chat_history)
+
 
 def layout():
 
@@ -66,6 +67,7 @@ def layout():
 
         index = st.session_state.get("index")
         if index:
+            st.success("Successfully indexed repository.")
             chat_engine = index.as_chat_engine(chat_mode="context")
 
         if "messages" not in st.session_state:
@@ -105,85 +107,103 @@ def display_chat_history(messages: list):
             st.write(message["content"])
 
 
-def repo_config() -> bool:
+def repo_config():
 
     github_client = GithubClient(st.session_state.get("github_pat"))
 
-    url_input = st.text_input(
-        "Enter the Github Repository URL to index.", key="github_repo_url"
-    )
-    branch = st.text_input(
-        "Enter the repo branch to index (leave blank to default to `main`).",
-        key="branch",
-    )
-    directories = st.text_input(
-        "Enter directory paths to filter on separated by commas (or leave empty to not use).",
-        key="directories",
-    )
-    directory_filter = st.radio(
-        "Include or exclude these directories?",
-        ["Include", "Exclude"],
-        key="directory_filter",
-    )
-    file_extensions = st.text_input(
-        "Enter file extensions to filter on separated by commas (or leave empty to not use).",
-        key="file_extensions",
-    )
-    file_extension_filter = st.radio(
-        "Include or exclude these file extensions?",
-        ["Include", "Exclude"],
-        key="file_extensions_filter",
-    )
+    if "config_expanded" not in st.session_state:
+        st.session_state.config_expanded = True
 
-    if st.button("Load Repository"):
+    with st.expander(
+        "Enter Repository Information", expanded=st.session_state.config_expanded
+    ):
 
-        if url_input:
+        url_input = st.text_input(
+            "Enter the Github Repository URL to index.", key="github_repo_url"
+        )
+        branch = st.text_input(
+            "Enter the repo branch to index (leave blank to default to `main`).",
+            key="branch",
+        )
+        directories = st.text_input(
+            "Enter directory paths to filter on separated by commas (or leave empty to not use).",
+            key="directories",
+        )
+        directory_filter = st.radio(
+            "Include or exclude these directories?",
+            ["Include", "Exclude"],
+            key="directory_filter",
+        )
+        file_extensions = st.text_input(
+            "Enter file extensions to filter on separated by commas (or leave empty to not use).",
+            key="file_extensions",
+        )
+        file_extension_filter = st.radio(
+            "Include or exclude these file extensions?",
+            ["Include", "Exclude"],
+            key="file_extensions_filter",
+        )
 
-            url = url_input.strip().lower()
-            match = re.match(REPO_PATTERN, url)
+        if st.button("Load Repository"):
 
-            if match:
+            if url_input:
 
-                directories = [dir.strip() for dir in directories.split(",") if dir.strip()]  # type: ignore
-                file_extensions = [ext.strip() for ext in file_extensions.split(",") if ext.strip()]  # type: ignore
-                directory_filter_type = GithubRepositoryReader.FilterType.INCLUDE if directory_filter.lower() == "include" else GithubRepositoryReader.FilterType.EXCLUDE  # type: ignore
-                file_extension_filter_type = GithubRepositoryReader.FilterType.INCLUDE if file_extension_filter.lower() == "include" else GithubRepositoryReader.FilterType.EXCLUDE  # type: ignore
-                branch = branch.lower().strip()
-                branch_arg = branch if branch is not None and branch != "" else "main"
+                url = url_input.strip().lower()
+                match = re.match(REPO_PATTERN, url)
 
-                owner, repo = match.groups()
-                directory_arg = (
-                    (directories, directory_filter_type)
-                    if len(directories) > 0
-                    else None
-                )
-                file_extension_arg = (
-                    (file_extensions, file_extension_filter_type)
-                    if len(file_extensions)
-                    else None
-                )
+                if match:
 
-                git_loader = GithubRepositoryReader(
-                    github_client=github_client,
-                    owner=owner,
-                    repo=repo,
-                    filter_directories=directory_arg,
-                    filter_file_extensions=file_extension_arg
-                )
-                try:
-                    github_documents = git_loader.load_data(branch=branch_arg)
-                except Exception as _:
-                    st.error(
-                        "Error loading github reposistory, check your github token and repository information."
+                    directories = [dir.strip() for dir in directories.split(",") if dir.strip()]  # type: ignore
+                    file_extensions = [ext.strip() for ext in file_extensions.split(",") if ext.strip()]  # type: ignore
+                    directory_filter_type = GithubRepositoryReader.FilterType.INCLUDE if directory_filter.lower() == "include" else GithubRepositoryReader.FilterType.EXCLUDE  # type: ignore
+                    file_extension_filter_type = GithubRepositoryReader.FilterType.INCLUDE if file_extension_filter.lower() == "include" else GithubRepositoryReader.FilterType.EXCLUDE  # type: ignore
+                    branch = branch.lower().strip()
+                    branch_arg = (
+                        branch if branch is not None and branch != "" else "main"
                     )
-                    return False
-                index = VectorStoreIndex.from_documents(github_documents)
-                st.session_state["index"] = index
 
-                return True
-            else:
-                st.error("Failed parsing repository URL, please try again.")
-                return False
+                    owner, repo = match.groups()
+                    directory_arg = (
+                        (directories, directory_filter_type)
+                        if len(directories) > 0
+                        else None
+                    )
+                    file_extension_arg = (
+                        (file_extensions, file_extension_filter_type)
+                        if len(file_extensions)
+                        else None
+                    )
+
+                    git_loader = GithubRepositoryReader(
+                        github_client=github_client,
+                        owner=owner,
+                        repo=repo,
+                        filter_directories=directory_arg,
+                        filter_file_extensions=file_extension_arg,
+                    )
+                    with st.spinner("Indexing..."):
+                        try:
+                            github_documents = git_loader.load_data(branch=branch_arg)
+                        except Exception as _:
+                            st.error(
+                                "Error loading github reposistory, check your github token and repository information."
+                            )
+                            return
+                        index = VectorStoreIndex.from_documents(github_documents)
+                        st.session_state["index"] = index
+                        st.session_state.config_expanded = False
+                else:
+                    st.error("Failed parsing repository URL, please try again.")
+
+
+def clear_chat_history():
+
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "Ask a question about the repository.",
+        }
+    ]
 
 
 def main():
