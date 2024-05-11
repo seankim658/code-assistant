@@ -89,13 +89,14 @@ def layout():
 
 
 def generate_assistant_response(prompt: str, chat_engine: BaseChatEngine):
-    
+
     with st.chat_message("assistant"):
         with st.spinner("On it..."):
             response = chat_engine.chat(prompt)
             message = {"role": "assistant", "content": response.response}
             st.write(message["content"])
             st.session_state.messages.append(message)
+
 
 def display_chat_history(messages: list):
 
@@ -167,7 +168,7 @@ def repo_config() -> bool:
                     owner=owner,
                     repo=repo,
                     filter_directories=directory_arg,
-                    filter_file_extensions=file_extension_arg,
+                    filter_file_extensions=file_extension_arg
                 )
                 try:
                     github_documents = git_loader.load_data(branch=branch_arg)
